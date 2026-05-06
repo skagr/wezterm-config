@@ -1,79 +1,66 @@
--- Keybinds ---------------------------------------------------------------
--- CTRL+L            leader key
---
--- LEADER+|          split pane right
--- LEADER+-          split pane down
--- LEADER+H/J/K/L    navigate panes
--- LEADER+←/→        rotate panes
---
--- CMD+T             new tab
--- CMD+N             new window
--- CMD+W             close pane, tab, window
---
--- LEADER+O          cycle opacity settings:
---   all windows transparent, only inactive windows, no transparency
--- LEADER+D          toggle desaturation of inactive windows
---
--- CMD+,             edit config (chezmoi)
--- OPT+←/→           jump word
---
--- LEADER+T          theme switcher (fzf)
---   CTRL-D            filter dark themes
---   CTRL-L            filter light themes (CTRL-L, CTRL-L if using CTRL-L as leader)
---   CTRL-A            show all themes
---   ENTER             confirm theme
---   ESC               cancel (restore previous theme)
----------------------------------------------------------------------------
-
 local wezterm = require("wezterm")
 local act = wezterm.action
 local config = wezterm.config_builder()
 
-config.set_environment_variables = {
-	PATH = "/opt/homebrew/bin:" .. os.getenv("PATH"),
-}
+wezterm.log_info("reloading")
 
 -- Preferences ------------------------------------------------------------
--- Font
 config.font = wezterm.font_with_fallback({
 	"FiraCode Nerd Font",
+	"JetBrainsMono Nerd Font",
 	"Symbols Nerd Font Mono",
 	"monospace",
 })
 config.font_size = 14
 
+-- Window
+config.initial_cols = 120
+config.initial_rows = 28
+config.max_fps = 120
+config.adjust_window_size_when_changing_font_size = false
+-- config.window_close_confirmation = "NeverPrompt"
+config.window_decorations = "RESIZE"
+config.default_cursor_style = "SteadyBar"
+
 -- Opacity and desaturation
 local opacity = 0.90
 local opacity_inactive_window = 0.75
-local desaturation_inactive_window = 0.7
+local desaturation_inactive_window = 0.666
 local opacity_tab_bar = 0
 local desaturate_inactive_panes = true
-local background_blur = 10
+config.macos_window_background_blur = 10
 
--- Theme state ------------------------------------------------------------
+-- what new panes will run. Change to { "/bin/zsh", "-l" } for login shells
+config.default_prog = { "/bin/zsh" }
+-- where to put *_THEME env vars
+local shell_rc = "~/.zshrc.local"
+
+-- If using Homebrew, needed for shell cmds
+config.set_environment_variables = {
+	PATH = "/opt/homebrew/bin:" .. os.getenv("PATH"),
+}
+
+-- Theme picker -----------------------------------------------------------
 local globals_path = wezterm.config_dir .. "/globals.lua"
-wezterm.add_to_config_reload_watch_list(globals_path)
 local fallback_theme = "Catppuccin Mocha"
 local builtin_schemes = wezterm.color.get_builtin_schemes()
 
--- Nerd Font icons appended as suffix ( dark,  light) so fzf theme picker
--- can filter by icon
-local moon = "\u{F186}"
-local sun = "\u{F185}"
+local theme_dark = "\u{F186}"
+local theme_light = "\u{F185}"
+local theme_light_dark = "\u{F050E}"
 
 local scheme_names = (function()
 	local names = {}
 	for name, scheme in pairs(builtin_schemes) do
 		if
-			not name:match("^3024") -- My eyes!
-			and not name:match("%(") -- duplicates
-			and not name:match("^[a-z].*%-") -- duplicates
-			and not name:match("^tokyonight") -- duplicates
+			not name:match("^3024")
+			and not name:match("%(")
+			and not name:match("^[a-z].*%-")
+			and not name:match("^tokyonight")
 			and scheme.background
 		then
-			-- Use HSLA lightness on the background color to detect dark/light
 			local _, _, l, _ = wezterm.color.parse(scheme.background):hsla()
-			local icon = l < 0.5 and moon or sun
+			local icon = l < 0.5 and theme_dark or theme_light
 			table.insert(names, name .. " " .. icon)
 		end
 	end
@@ -90,27 +77,208 @@ local function active_theme()
 	return globals.preview_theme or globals.current_theme
 end
 
-config.color_scheme = active_theme()
-config.window_background_opacity = opacity
-config.macos_window_background_blur = background_blur
+local function theme_switcher(window, pane)
+	local cfg_dir = wezterm.config_dir
+	local themes_file = "/tmp/wezterm_themes_" .. os.getenv("USER")
 
-if
-	desaturate_inactive_panes and globals.preview_theme == nil -- theme picker not active
-then
-	config.inactive_pane_hsb = {
-		saturation = 1 - (desaturation_inactive_window * 0.666),
-		brightness = 0.666,
+	local f = io.open(themes_file, "w")
+	if not f then
+		wezterm.log_error("Could not write themes file: " .. themes_file)
+		return
+	end
+	f:write(table.concat(scheme_names, "\n"))
+	f:close()
+
+	local script = string.format(
+		[[
+# Set pane user var so wezterm passes ctrl+j/k through to fzf
+printf "\033]1337;SetUserVar=%%s=%%s\007" IS_FZF "$(echo -n true | base64)"
+SELECTED=$(cat %s | fzf \
+  --no-sort \
+  --reverse \
+  --prompt="theme %s " \
+  --bind "ctrl-i:change-prompt(theme )+change-query(%s )" \
+  --bind "ctrl-o:change-prompt(theme )+change-query(%s )" \
+  --bind "ctrl-p:change-prompt(theme %s )+change-query()" \
+  --bind "ctrl-j:down,ctrl-k:up" \
+  --bind "focus:execute-silent[%s/preview_theme.sh {}]" \
+  --bind "esc:execute-silent[%s/cancel_theme.sh]+abort" \
+)
+if [ -n "$SELECTED" ]; then
+  %s/confirm_theme.sh "$SELECTED"
+  export $(grep '^export' ]]
+			.. shell_rc
+			.. [[ | xargs)
+else
+  %s/cancel_theme.sh
+fi
+    ]],
+		themes_file,
+		theme_light_dark,
+		theme_dark,
+		theme_light,
+		theme_light_dark,
+		cfg_dir,
+		cfg_dir,
+		cfg_dir,
+		cfg_dir
+	)
+
+	window:perform_action(
+		act.SplitPane({
+			direction = "Right",
+			size = { Percent = 30 },
+			command = { args = { "bash", "-c", script } },
+		}),
+		pane
+	)
+end
+
+-- Key functions ----------------------------------------------------------
+local mod = wezterm.target_triple:find("windows") and "SHIFT|CTRL" or "SHIFT|SUPER"
+
+local function is_nvim(pane)
+	return pane:get_user_vars().IS_NVIM == "true" or pane:get_foreground_process_name():find("n?vim$")
+end
+
+local function is_fzf(pane)
+	return pane:get_user_vars().IS_FZF == "true" or pane:get_foreground_process_name():find("fzf$")
+end
+
+local function is_passthrough(pane, key)
+	if is_nvim(pane) then
+		return true
+	end
+	-- In fzf, only pass through ctrl+j/k (up/down navigation)
+	if is_fzf(pane) then
+		return key == "j" or key == "k"
+	end
+	return false
+end
+
+local edit_config = act.SpawnCommandInNewTab({
+	cwd = wezterm.home_dir,
+	args = {
+		"bash",
+		"-c",
+		string.format(
+			"sleep 0.1"
+				.. " && wezterm cli set-tab-title 'config'"
+				.. " && export $(grep '^export' "
+				.. shell_rc
+				.. " | xargs)"
+				.. " && if command -v chezmoi >/dev/null 2>&1;"
+				.. " then chezmoi edit --apply %q;"
+				.. " else ${EDITOR:-vi} %q; fi",
+			wezterm.config_file,
+			wezterm.config_file
+		),
+	},
+})
+
+local smart_split = wezterm.action_callback(function(window, pane)
+	local dim = pane:get_dimensions()
+	if dim.pixel_height > dim.pixel_width then
+		window:perform_action(act.SplitVertical({ domain = "CurrentPaneDomain" }), pane)
+	else
+		window:perform_action(act.SplitHorizontal({ domain = "CurrentPaneDomain" }), pane)
+	end
+end)
+
+---@param resize_or_move "resize" | "move"
+---@param mods string
+---@param key string
+---@param dir "Right" | "Left" | "Up" | "Down"
+local function split_nav(resize_or_move, mods, key, dir)
+	local event = "SplitNav_" .. resize_or_move .. "_" .. dir
+	wezterm.on(event, function(win, pane)
+		if is_passthrough(pane, key) then
+			win:perform_action({ SendKey = { key = key, mods = mods } }, pane)
+		else
+			if resize_or_move == "resize" then
+				win:perform_action({ AdjustPaneSize = { dir, 3 } }, pane)
+			else
+				local panes = pane:tab():panes_with_info()
+				local is_zoomed = false
+				for _, p in ipairs(panes) do
+					if p.is_zoomed then
+						is_zoomed = true
+					end
+				end
+				wezterm.log_info("is_zoomed: " .. tostring(is_zoomed))
+				if is_zoomed then
+					dir = (dir == "Up" or dir == "Right") and "Next" or "Prev"
+					wezterm.log_info("dir: " .. dir)
+				end
+				win:perform_action({ ActivatePaneDirection = dir }, pane)
+				win:perform_action({ SetPaneZoomState = is_zoomed }, pane)
+			end
+		end
+	end)
+	return {
+		key = key,
+		mods = mods,
+		action = wezterm.action.EmitEvent(event),
 	}
 end
 
--- Window -----------------------------------------------------------------
-config.initial_cols = 120
-config.initial_rows = 28
-config.max_fps = 120
-config.adjust_window_size_when_changing_font_size = false
-config.window_close_confirmation = "NeverPrompt"
-config.window_decorations = "RESIZE"
-config.default_cursor_style = "SteadyBar"
+-- Keybinds -------------------------------------------------------------------
+-- config.disable_default_key_bindings = true
+config.send_composed_key_when_left_alt_is_pressed = false
+config.leader = { key = "L", mods = mod, timeout_milliseconds = 2000 }
+
+config.keys = {
+	{ key = "t", mods = "LEADER", action = wezterm.action_callback(theme_switcher) },
+	{ key = "o", mods = "LEADER", action = act.EmitEvent("toggle-opacity") },
+	{ key = "d", mods = "LEADER", action = act.EmitEvent("toggle-desaturation") },
+
+	-- Alt+Left/Right to jump words
+	{ key = "LeftArrow", mods = "OPT", action = act.SendString("\x1bb") },
+	{ key = "RightArrow", mods = "OPT", action = act.SendString("\x1bf") },
+
+	-- Edit config (Cmd+, on macOS, Ctrl+, on Linux/Windows)
+	{
+		key = ",",
+		mods = wezterm.target_triple:find("darwin") and "SUPER" or "CTRL",
+		action = edit_config,
+	},
+	-- Split/tab/window (non-login shells)
+	{ key = "Enter", mods = mod, action = smart_split },
+	{
+		key = "|",
+		mods = mod,
+		action = act.SplitHorizontal({ domain = "CurrentPaneDomain" }),
+	},
+	{
+		key = "-",
+		mods = mod,
+		action = act.SplitVertical({ domain = "CurrentPaneDomain" }),
+	},
+	{ key = "r", mods = "LEADER", action = act.RotatePanes("Clockwise") },
+
+	{ key = "t", mods = "CMD", action = act.SpawnCommandInNewTab({}) },
+	{ key = "n", mods = "CMD", action = act.SpawnCommandInNewWindow({}) },
+	{ key = "w", mods = "CMD", action = act.CloseCurrentPane({ confirm = false }) },
+
+	-- Pane selection
+	{ key = "s", mods = "LEADER", action = wezterm.action.PaneSelect({}) },
+	{ key = "z", mods = "LEADER", action = act.TogglePaneZoomState },
+	-- Navigation
+	split_nav("resize", "CTRL", "LeftArrow", "Left"),
+	split_nav("resize", "CTRL", "RightArrow", "Right"),
+	split_nav("resize", "CTRL", "UpArrow", "Up"),
+	split_nav("resize", "CTRL", "DownArrow", "Down"),
+	split_nav("move", "CTRL", "h", "Left"),
+	split_nav("move", "CTRL", "j", "Down"),
+	split_nav("move", "CTRL", "k", "Up"),
+	split_nav("move", "CTRL", "l", "Right"),
+}
+
+-- Theme state ------------------------------------------------------------
+wezterm.add_to_config_reload_watch_list(globals_path)
+
+config.color_scheme = active_theme()
+config.window_background_opacity = opacity
 
 -- Tab bar ----------------------------------------------------------------
 config.enable_tab_bar = true
@@ -174,34 +342,38 @@ wezterm.GLOBAL.desat_mode = wezterm.GLOBAL.desat_mode or 1
 local function apply_opacity(window)
 	local overrides = window:get_config_overrides() or {}
 	local mode = wezterm.GLOBAL.opacity_mode or 0
+	local desat_mode = wezterm.GLOBAL.desat_mode or 1
 	if window:is_focused() then
-		overrides.window_background_opacity = (mode == 0) and opacity or 0.999 -- .999 because osx draws a thin border otherwise
+		overrides.window_background_opacity = (mode == 0) and opacity or 0.999 -- 0.999 because MacOS draws a thin white border at 1.0
 		overrides.colors = { tab_bar = make_tab_bar_colors(active_theme(), overrides.window_background_opacity) }
+		overrides.inactive_pane_hsb = (desaturate_inactive_panes and desat_mode == 1 and globals.preview_theme == nil)
+				and {
+					saturation = 1 - (desaturation_inactive_window * 0.5),
+					brightness = 0.666,
+				}
+			or nil
 	else
 		overrides.window_background_opacity = (mode == 2) and 0.999 or opacity_inactive_window
 		local s = builtin_schemes[active_theme()] or builtin_schemes[fallback_theme]
-
-		local desat_mode = wezterm.GLOBAL.desat_mode or 1
 		local desat = (desat_mode == 1) and desaturation_inactive_window or 0
-
 		overrides.colors = {
 			tab_bar = make_tab_bar_colors(active_theme(), overrides.window_background_opacity),
-			foreground = wezterm.color.parse(s.foreground):desaturate(desat),
-			background = wezterm.color.parse(s.background):desaturate(desat),
-			ansi = (function()
+			foreground = s.foreground and wezterm.color.parse(s.foreground):desaturate(desat) or nil,
+			background = s.background and wezterm.color.parse(s.background):desaturate(desat) or nil,
+			ansi = s.ansi and (function()
 				local t = {}
 				for _, c in ipairs(s.ansi) do
 					table.insert(t, wezterm.color.parse(c):desaturate(desat))
 				end
 				return t
-			end)(),
-			brights = (function()
+			end)() or nil,
+			brights = s.brights and (function()
 				local t = {}
 				for _, c in ipairs(s.brights) do
 					table.insert(t, wezterm.color.parse(c):desaturate(desat))
 				end
 				return t
-			end)(),
+			end)() or nil,
 		}
 	end
 	window:set_config_overrides(overrides)
@@ -228,185 +400,5 @@ end)
 wezterm.on("window-config-reloaded", function(window)
 	apply_opacity(window)
 end)
-
--- Theme switcher ---------------------------------------------------------
-local function theme_switcher(window, pane)
-	local cfg_dir = wezterm.config_dir
-	local themes_file = "/tmp/wezterm_themes_" .. os.getenv("USER")
-
-	local f = io.open(themes_file, "w")
-	if not f then
-		wezterm.log_error("Could not write themes file: " .. themes_file)
-		return
-	end
-	f:write(table.concat(scheme_names, "\n"))
-	f:close()
-
-	local script = string.format(
-		[[
-SELECTED=$(cat %s | fzf \
-  --no-sort \
-  --reverse \
-  --prompt="🎨 theme > " \
-  --bind "ctrl-d:change-query(%s )" \
-  --bind "ctrl-l:change-query(%s )" \
-  --bind "ctrl-a:change-query()" \
-  --bind "focus:execute-silent[%s/preview_theme.sh {}]" \
-  --bind "esc:execute-silent[%s/cancel_theme.sh]+abort" \
-)
-if [ -n "$SELECTED" ]; then
-  %s/confirm_theme.sh "$SELECTED"
-  source ~/.zshrc.local
-else
-  %s/cancel_theme.sh
-fi
-    ]],
-		themes_file, -- cat %s
-		moon, -- ctrl-d: change-query(%s ) → filter dark
-		sun, -- ctrl-l: change-query(%s ) → filter light
-		cfg_dir, -- focus: preview_theme.sh
-		cfg_dir, -- esc: cancel_theme.sh
-		cfg_dir, -- enter: confirm_theme.sh
-		cfg_dir -- else: cancel_theme.sh
-	)
-
-	window:perform_action(
-		act.SplitPane({
-			direction = "Right",
-			size = { Percent = 30 },
-			command = { args = { "bash", "-c", script } },
-		}),
-		pane
-	)
-end
-
--- Keys -------------------------------------------------------------------
-config.send_composed_key_when_left_alt_is_pressed = false
-config.leader = { key = "l", mods = "CTRL", timeout_milliseconds = 1000 }
-
-config.keys = {
-	-- Pass CTRL+L through when already in leader mode
-	{
-		key = "l",
-		mods = "LEADER|CTRL",
-		action = wezterm.action.SendKey({ key = "l", mods = "CTRL" }),
-	},
-	-- Theme switcher
-	{
-		key = "t",
-		mods = "LEADER",
-		action = wezterm.action_callback(theme_switcher),
-	},
-	-- Toggle opacity
-	{
-		key = "o",
-		mods = "LEADER",
-		action = wezterm.action.EmitEvent("toggle-opacity"),
-	},
-	-- Toggle desaturation
-	{
-		key = "d",
-		mods = "LEADER",
-		action = wezterm.action.EmitEvent("toggle-desaturation"),
-	},
-	-- Edit config
-	{
-		key = ",",
-		mods = "SUPER",
-		action = wezterm.action.SpawnCommandInNewTab({
-			cwd = wezterm.home_dir,
-			args = {
-				"bash",
-				"-c",
-				string.format(
-					"sleep 0.1 && wezterm cli set-tab-title 'config' && source ~/.zshrc.local && chezmoi edit --apply %q",
-					-- "sleep 0.1 && wezterm cli set-tab-title 'config' && source ~/.zshrc.local && nvim %q",
-					wezterm.config_file
-				),
-			},
-		}),
-	},
-	-- Alt+Left/Right to jump words
-	{
-		key = "LeftArrow",
-		mods = "OPT",
-		action = wezterm.action.SendString("\x1bb"),
-	},
-	{
-		key = "RightArrow",
-		mods = "OPT",
-		action = wezterm.action.SendString("\x1bf"),
-	},
-	-- Splits (non-login shells)
-	{
-		key = "|",
-		mods = "LEADER",
-		action = wezterm.action.SplitHorizontal({
-			domain = "CurrentPaneDomain",
-			args = { "/bin/zsh" },
-		}),
-	},
-	{
-		key = "-",
-		mods = "LEADER",
-		action = wezterm.action.SplitVertical({
-			domain = "CurrentPaneDomain",
-			args = { "/bin/zsh" },
-		}),
-	},
-	-- New tab/window (non-login shells)
-	{
-		key = "t",
-		mods = "CMD",
-		action = act.SpawnCommandInNewTab({
-			args = { "/bin/zsh" },
-		}),
-	},
-	{
-		key = "n",
-		mods = "CMD",
-		action = act.SpawnCommandInNewWindow({
-			args = { "/bin/zsh" },
-		}),
-	},
-	-- Close pane
-	{
-		key = "w",
-		mods = "CMD",
-		action = wezterm.action.CloseCurrentPane({ confirm = false }),
-	},
-	-- Navigate panes
-	{
-		key = "h",
-		mods = "LEADER",
-		action = wezterm.action.ActivatePaneDirection("Left"),
-	},
-	{
-		key = "l",
-		mods = "LEADER",
-		action = wezterm.action.ActivatePaneDirection("Right"),
-	},
-	{
-		key = "k",
-		mods = "LEADER",
-		action = wezterm.action.ActivatePaneDirection("Up"),
-	},
-	{
-		key = "j",
-		mods = "LEADER",
-		action = wezterm.action.ActivatePaneDirection("Down"),
-	},
-	-- Rotate panes
-	{
-		key = "LeftArrow",
-		mods = "LEADER",
-		action = wezterm.action.RotatePanes("CounterClockwise"),
-	},
-	{
-		key = "RightArrow",
-		mods = "LEADER",
-		action = wezterm.action.RotatePanes("Clockwise"),
-	},
-}
 
 return config
