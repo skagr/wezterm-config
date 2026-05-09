@@ -31,7 +31,7 @@ In addition, desaturation of unfocused panes can be toggled in wezterm.lua
 
 Fuzzy theme picker:
 
-- `Ctrl+D`, `Ctrl+L` keybinds to filter dark/light themes
+- Keybinds to filter dark/light themes
 - Live preview in all windows
 - Choosing a wezterm theme synchronizes to `bat` and `nvim`. 
   - Updates env var exports BAT_THEME and NVIM_THEME in ~/.zshrc.local, changes applied after sourcing
