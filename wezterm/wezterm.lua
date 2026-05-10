@@ -101,16 +101,16 @@ SELECTED=$(cat %s | fzf \
   --bind "ctrl-o:change-prompt(theme )+change-query(%s )" \
   --bind "ctrl-p:change-prompt(theme %s )+change-query()" \
   --bind "ctrl-j:down,ctrl-k:up" \
-  --bind "focus:execute-silent[%s/preview_theme.sh {}]" \
-  --bind "esc:execute-silent[%s/cancel_theme.sh]+abort" \
+  --bind "focus:execute-silent[%s/theme_helper.sh preview {}]" \
+  --bind "esc:execute-silent[%s/theme_helper.sh cancel]+abort" \
 )
 if [ -n "$SELECTED" ]; then
-  %s/confirm_theme.sh "$SELECTED"
+  %s/theme_helper.sh confirm "$SELECTED"
   export $(grep '^export' ]]
 			.. shell_rc
 			.. [[ | xargs)
 else
-  %s/cancel_theme.sh
+  %s/theme_helper.sh cancel
 fi
     ]],
 		themes_file,
