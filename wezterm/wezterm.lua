@@ -138,7 +138,24 @@ end
 local mod = wezterm.target_triple:find("windows") and "SHIFT|CTRL" or "SHIFT|SUPER"
 
 local function is_nvim(pane)
-	return pane:get_user_vars().IS_NVIM == "true" or pane:get_foreground_process_name():find("n?vim$")
+	if pane:get_user_vars().IS_NVIM == "true" then
+		return true
+	end
+	local function walk(info)
+		if not info then
+			return false
+		end
+		if info.name and info.name:match("n?vim$") then
+			return true
+		end
+		for _, child in pairs(info.children or {}) do
+			if walk(child) then
+				return true
+			end
+		end
+		return false
+	end
+	return walk(pane:get_foreground_process_info())
 end
 
 local function is_fzf(pane)
@@ -200,18 +217,47 @@ local function split_nav(resize_or_move, mods, key, dir)
 			else
 				local panes = pane:tab():panes_with_info()
 				local is_zoomed = false
+				local active
 				for _, p in ipairs(panes) do
 					if p.is_zoomed then
 						is_zoomed = true
 					end
+					if p.is_active then
+						active = p
+					end
 				end
-				wezterm.log_info("is_zoomed: " .. tostring(is_zoomed))
 				if is_zoomed then
 					dir = (dir == "Up" or dir == "Right") and "Next" or "Prev"
-					wezterm.log_info("dir: " .. dir)
+					win:perform_action({ ActivatePaneDirection = dir }, pane)
+					win:perform_action({ SetPaneZoomState = is_zoomed }, pane)
+				else
+					local at_edge = true
+					for _, p in ipairs(panes) do
+						if p.pane:pane_id() ~= active.pane:pane_id() then
+							if dir == "Left" and p.left + p.width <= active.left then
+								at_edge = false
+								break
+							end
+							if dir == "Right" and p.left >= active.left + active.width then
+								at_edge = false
+								break
+							end
+							if dir == "Up" and p.top + p.height <= active.top then
+								at_edge = false
+								break
+							end
+							if dir == "Down" and p.top >= active.top + active.height then
+								at_edge = false
+								break
+							end
+						end
+					end
+					if at_edge then
+						wezterm.run_child_process({ "/opt/homebrew/bin/aerospace", "focus", dir:lower() })
+					else
+						win:perform_action({ ActivatePaneDirection = dir }, pane)
+					end
 				end
-				win:perform_action({ ActivatePaneDirection = dir }, pane)
-				win:perform_action({ SetPaneZoomState = is_zoomed }, pane)
 			end
 		end
 	end)
@@ -242,7 +288,8 @@ config.keys = {
 		mods = wezterm.target_triple:find("darwin") and "SUPER" or "CTRL",
 		action = edit_config,
 	},
-	-- Split/tab/window (non-login shells)
+
+	-- Split/tab/window
 	{ key = "Enter", mods = mod, action = smart_split },
 	{
 		key = "|",
@@ -263,6 +310,7 @@ config.keys = {
 	-- Pane selection
 	{ key = "s", mods = "LEADER", action = wezterm.action.PaneSelect({}) },
 	{ key = "z", mods = "LEADER", action = act.TogglePaneZoomState },
+
 	-- Navigation
 	split_nav("resize", "CTRL", "LeftArrow", "Left"),
 	split_nav("resize", "CTRL", "RightArrow", "Right"),

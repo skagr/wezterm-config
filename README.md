@@ -1,15 +1,22 @@
-My [ WezTerm ](https://wezterm.org/) config
+My WezTerm, Neovim and Aerospace config
 
 ## Requirements
 
+- [WezTerm](https://wezterm.org/)
 - bash
-- [ fzf ](https://github.com/junegunn/fzf)
-- [ Neovim ](https://neovim.io/) (optional)
-- [ bat ](https://github.com/sharkdp/bat) (optional)
+- [fzf ](https://github.com/junegunn/fzf)
+- [Neovim ](https://neovim.io/) (optional)
+- [smart-splits.nvim](https://github.com/mrjones2014/smart-splits.nvim#install) (optional)
+- [Aerospace ](https://github.com/nickolay-krets/aerospace) (optional)
+- [bat ](https://github.com/sharkdp/bat) (optional)
 
 There’s some MacOS / zsh specific stuff in here, but it shouldn’t be too hard to adapt.
 
 ## Features
+
+### Seamless navigation between splits
+
+One set of keybinds moves between panes, Aerospace windows, Neovim windows
 
 ### Opacity toggle
 
@@ -47,9 +54,7 @@ Based on [wezthemes](https://github.com/CheikhNaro/wezthemes)
 
 Smart split: create a vertical or horizontal split depending on the current pane's shape.
 
-Smart split navigation: if in Neovim, pass commands through, otherwise navigate WezTerm panes.
-
-Both stolen from [Folke](https://github.com/folke/dot/blob/master/config/wezterm/keys.lua)
+Smart split navigation: if in Neovim, pass commands through; otherwise navigate WezTerm panes. At the edge of the pane layout, falls through to Aerospace to focus the neighboring window.
 
 Keybind to open `wezterm.lua`: in [ chezmoi ](https://www.chezmoi.io/) if present, `$EDITOR` otherwise
 
@@ -57,7 +62,7 @@ Keybind to open `wezterm.lua`: in [ chezmoi ](https://www.chezmoi.io/) if presen
 
 Copy `wezterm/*` to `~/.config/wezterm` 
 
-Optional:
+### Optional:
 
 add to .zshrc:
 
@@ -96,6 +101,11 @@ Configure Neovim to use `$NVIM_THEME` (example for LazyVim):
   },
 ```
 
+Install [smart-splits.nvim](https://github.com/mrjones2014/smart-splits.nvim#install)
+
+- Example config in `/nvim`
+
+Change Aerospace `Ctrl+HJKL` keybinds to something else, so WezTerm receives these.
 
 ## Keybinds
 
@@ -145,9 +155,9 @@ In theme picker:
 | `<leader>Z` | Toggle pane zoom |
 
 
-### Navigation (Neovim-aware)
+### Navigation
 
-These keys are forwarded to Neovim when the active pane is running (n)vim, otherwise they control WezTerm panes.
+These keys are forwarded to Neovim when the active pane is running (n)vim, otherwise they navigate WezTerm panes. At the edge of the pane layout, focus moves to the neighboring Aerospace window.
 
 
 | Keys | Action |
