@@ -1,5 +1,7 @@
 My WezTerm, Neovim and Aerospace config
 
+![](screenshot.png)
+
 ## Requirements
 
 - [WezTerm](https://wezterm.org/)
