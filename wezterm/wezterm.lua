@@ -23,15 +23,16 @@ config.window_decorations = "RESIZE"
 config.default_cursor_style = "SteadyBar"
 
 -- Opacity and desaturation
-local opacity = 0.90
+local desaturate_inactive_panes = true -- sets initial desat_mode: true → "muted", false → "vibrant"
+local transparency_mode = "both" -- "both" | "inactive" | "none"
+config.macos_window_background_blur = 10
+local opacity_active_window = 0.90
 local opacity_inactive_window = 0.75
-local desaturation_inactive_window = 0.666
+local desaturation_inactive_pane = 0.666
+local brightness_inactive_pane = 0.666
 local opacity_tab_bar = 0
 local opacity_active_tab = 0.6
 local opacity_max = 0.999 -- macOS draws a thin white border at exactly 1.0
-local inactive_pane_brightness = 0.666
-local desaturate_inactive_panes = true
-config.macos_window_background_blur = 10
 
 -- non-login shell for new tabs, panes, and windows; startup gets the OS default (login shell)
 -- Change to { "/bin/zsh", "-l" } for login shells
@@ -297,7 +298,7 @@ config.keys = {
 wezterm.add_to_config_reload_watch_list(globals_path)
 
 config.color_scheme = active_theme()
-config.window_background_opacity = opacity
+config.window_background_opacity = opacity_active_window
 
 -- Tab bar ----------------------------------------------------------------
 config.enable_tab_bar = true
@@ -353,29 +354,33 @@ config.colors = {
 }
 
 -- Opacity and desaturation toggles ---------------------------------------
--- 0 = both transparent, 1 = active opaque/inactive transparent, 2 = both opaque
-wezterm.GLOBAL.opacity_mode = wezterm.GLOBAL.opacity_mode or 0
--- 0 = no desaturation, 1 = inactive desaturated
-wezterm.GLOBAL.desat_mode = wezterm.GLOBAL.desat_mode or 1
+local transparency_mode_cycle = { both = "inactive", inactive = "none", none = "both" }
+local desat_mode_cycle = { muted = "vibrant", vibrant = "muted" }
+wezterm.GLOBAL.transparency_mode = wezterm.GLOBAL.transparency_mode or transparency_mode
+wezterm.GLOBAL.desat_mode = wezterm.GLOBAL.desat_mode or (desaturate_inactive_panes and "muted" or "vibrant")
 
 local function apply_opacity(window)
 	local overrides = window:get_config_overrides() or {}
-	local mode = wezterm.GLOBAL.opacity_mode or 0
-	local desat_mode = wezterm.GLOBAL.desat_mode or 1
+	local mode = wezterm.GLOBAL.transparency_mode or transparency_mode
+	local desat_mode = wezterm.GLOBAL.desat_mode or (desaturate_inactive_panes and "muted" or "vibrant")
 	local theme = active_theme()
 	if window:is_focused() then
-		overrides.window_background_opacity = (mode == 0) and opacity or opacity_max
+		overrides.window_background_opacity = (mode == "both") and opacity_active_window or opacity_max
 		overrides.colors = { tab_bar = make_tab_bar_colors(theme, overrides.window_background_opacity) }
-		overrides.inactive_pane_hsb = (desaturate_inactive_panes and desat_mode == 1 and globals.preview_theme == nil)
+		overrides.inactive_pane_hsb = (
+			desaturate_inactive_panes
+			and desat_mode == "muted"
+			and globals.preview_theme == nil
+		)
 				and {
-					saturation = 1 - (desaturation_inactive_window * 0.5),
-					brightness = inactive_pane_brightness,
+					saturation = 1 - (desaturation_inactive_pane * 0.5),
+					brightness = brightness_inactive_pane,
 				}
 			or nil
 	else
-		overrides.window_background_opacity = (mode == 2) and opacity_max or opacity_inactive_window
+		overrides.window_background_opacity = (mode == "none") and opacity_max or opacity_inactive_window
 		local s = builtin_schemes[theme] or builtin_schemes[fallback_theme]
-		local desat = (desat_mode == 1) and desaturation_inactive_window or 0
+		local desat = (desat_mode == "muted") and desaturation_inactive_pane or 0
 		local function desaturate_list(list)
 			if not list or desat == 0 then
 				return nil
@@ -402,14 +407,14 @@ wezterm.on("window-focus-changed", function(window)
 end)
 
 wezterm.on("toggle-opacity", function(window)
-	wezterm.GLOBAL.opacity_mode = (wezterm.GLOBAL.opacity_mode + 1) % 3
+	wezterm.GLOBAL.transparency_mode = transparency_mode_cycle[wezterm.GLOBAL.transparency_mode]
 	for _, mux_win in ipairs(wezterm.mux.all_windows()) do
 		apply_opacity(mux_win:gui_window())
 	end
 end)
 
 wezterm.on("toggle-desaturation", function(window)
-	wezterm.GLOBAL.desat_mode = (wezterm.GLOBAL.desat_mode + 1) % 2
+	wezterm.GLOBAL.desat_mode = desat_mode_cycle[wezterm.GLOBAL.desat_mode]
 	for _, mux_win in ipairs(wezterm.mux.all_windows()) do
 		apply_opacity(mux_win:gui_window())
 	end
