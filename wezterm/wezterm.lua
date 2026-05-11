@@ -2,7 +2,7 @@ local wezterm = require("wezterm")
 local act = wezterm.action
 local config = wezterm.config_builder()
 
-wezterm.log_info("reloading")
+-- wezterm.log_info("reloading")
 
 -- Preferences ------------------------------------------------------------
 config.font = wezterm.font_with_fallback({
@@ -18,7 +18,7 @@ config.initial_cols = 120
 config.initial_rows = 28
 config.max_fps = 120
 config.adjust_window_size_when_changing_font_size = false
--- config.window_close_confirmation = "NeverPrompt"
+config.window_close_confirmation = "NeverPrompt"
 config.window_decorations = "RESIZE"
 config.default_cursor_style = "SteadyBar"
 
@@ -27,13 +27,17 @@ local opacity = 0.90
 local opacity_inactive_window = 0.75
 local desaturation_inactive_window = 0.666
 local opacity_tab_bar = 0
+local opacity_active_tab = 0.6
+local opacity_max = 0.999 -- macOS draws a thin white border at exactly 1.0
+local inactive_pane_brightness = 0.666
 local desaturate_inactive_panes = true
 config.macos_window_background_blur = 10
 
--- what new panes will run. Change to { "/bin/zsh", "-l" } for login shells
-config.default_prog = { "/bin/zsh" }
--- where to put *_THEME env vars
-local shell_rc = "~/.zshrc.local"
+-- non-login shell for new tabs, panes, and windows; startup gets the OS default (login shell)
+-- Change to { "/bin/zsh", "-l" } for login shells
+local new_pane_prog = { "/bin/zsh" }
+-- where do *_THEME env vars live? This script will not add them, only update them if they exist
+local shell_rc = wezterm.home_dir .. "/.zshrc.local"
 
 -- If using Homebrew, needed for shell cmds
 config.set_environment_variables = {
@@ -47,7 +51,7 @@ local builtin_schemes = wezterm.color.get_builtin_schemes()
 
 local theme_dark = "\u{F186}"
 local theme_light = "\u{F185}"
-local theme_light_dark = "\u{F050E}"
+-- local theme_light_dark = "\u{F050E}"
 
 local scheme_names = (function()
 	local names = {}
@@ -89,54 +93,20 @@ local function theme_switcher(window, pane)
 	f:write(table.concat(scheme_names, "\n"))
 	f:close()
 
-	local script = string.format(
-		[[
-# Set pane user var so wezterm passes ctrl+j/k through to fzf
-printf "\033]1337;SetUserVar=%%s=%%s\007" IS_FZF "$(echo -n true | base64)"
-SELECTED=$(cat %s | fzf \
-  --no-sort \
-  --reverse \
-  --prompt="theme %s " \
-  --bind "ctrl-i:change-prompt(theme )+change-query(%s )" \
-  --bind "ctrl-o:change-prompt(theme )+change-query(%s )" \
-  --bind "ctrl-p:change-prompt(theme %s )+change-query()" \
-  --bind "ctrl-j:down,ctrl-k:up" \
-  --bind "focus:execute-silent[%s/theme_helper.sh preview {}]" \
-  --bind "esc:execute-silent[%s/theme_helper.sh cancel]+abort" \
-)
-if [ -n "$SELECTED" ]; then
-  %s/theme_helper.sh confirm "$SELECTED"
-  export $(grep '^export' ]]
-			.. shell_rc
-			.. [[ | xargs)
-else
-  %s/theme_helper.sh cancel
-fi
-    ]],
-		themes_file,
-		theme_light_dark,
-		theme_dark,
-		theme_light,
-		theme_light_dark,
-		cfg_dir,
-		cfg_dir,
-		cfg_dir,
-		cfg_dir
-	)
+	local cols = pane:get_dimensions().cols
+	local size = (math.floor(cols * 0.3) >= 20) and { Percent = 30 } or { Cells = 20 }
 
 	window:perform_action(
 		act.SplitPane({
 			direction = "Right",
-			size = { Percent = 30 },
-			command = { args = { "bash", "-c", script } },
+			size = size,
+			command = { args = { "bash", cfg_dir .. "/theme_helper.sh", "pick", themes_file, shell_rc } },
 		}),
 		pane
 	)
 end
 
 -- Key functions ----------------------------------------------------------
-local mod = wezterm.target_triple:find("windows") and "SHIFT|CTRL" or "SHIFT|SUPER"
-
 local function is_nvim(pane)
 	if pane:get_user_vars().IS_NVIM == "true" then
 		return true
@@ -196,9 +166,9 @@ local edit_config = act.SpawnCommandInNewTab({
 local smart_split = wezterm.action_callback(function(window, pane)
 	local dim = pane:get_dimensions()
 	if dim.pixel_height > dim.pixel_width then
-		window:perform_action(act.SplitVertical({ domain = "CurrentPaneDomain" }), pane)
+		window:perform_action(act.SplitVertical({ domain = "CurrentPaneDomain", args = new_pane_prog }), pane)
 	else
-		window:perform_action(act.SplitHorizontal({ domain = "CurrentPaneDomain" }), pane)
+		window:perform_action(act.SplitHorizontal({ domain = "CurrentPaneDomain", args = new_pane_prog }), pane)
 	end
 end)
 
@@ -264,14 +234,15 @@ local function split_nav(resize_or_move, mods, key, dir)
 	return {
 		key = key,
 		mods = mods,
-		action = wezterm.action.EmitEvent(event),
+		action = act.EmitEvent(event),
 	}
 end
 
 -- Keybinds -------------------------------------------------------------------
 -- config.disable_default_key_bindings = true
-config.send_composed_key_when_left_alt_is_pressed = false
+local mod = wezterm.target_triple:find("windows") and "SHIFT|CTRL" or "SHIFT|SUPER"
 config.leader = { key = "L", mods = mod, timeout_milliseconds = 2000 }
+config.send_composed_key_when_left_alt_is_pressed = false
 
 config.keys = {
 	{ key = "t", mods = "LEADER", action = wezterm.action_callback(theme_switcher) },
@@ -294,21 +265,21 @@ config.keys = {
 	{
 		key = "|",
 		mods = mod,
-		action = act.SplitHorizontal({ domain = "CurrentPaneDomain" }),
+		action = act.SplitHorizontal({ domain = "CurrentPaneDomain", args = new_pane_prog }),
 	},
 	{
 		key = "-",
 		mods = mod,
-		action = act.SplitVertical({ domain = "CurrentPaneDomain" }),
+		action = act.SplitVertical({ domain = "CurrentPaneDomain", args = new_pane_prog }),
 	},
 	{ key = "r", mods = "LEADER", action = act.RotatePanes("Clockwise") },
 
-	{ key = "t", mods = "CMD", action = act.SpawnCommandInNewTab({}) },
-	{ key = "n", mods = "CMD", action = act.SpawnCommandInNewWindow({}) },
+	{ key = "t", mods = "CMD", action = act.SpawnCommandInNewTab({ args = new_pane_prog }) },
+	{ key = "n", mods = "CMD", action = act.SpawnCommandInNewWindow({ args = new_pane_prog }) },
 	{ key = "w", mods = "CMD", action = act.CloseCurrentPane({ confirm = false }) },
 
 	-- Pane selection
-	{ key = "s", mods = "LEADER", action = wezterm.action.PaneSelect({}) },
+	{ key = "s", mods = "LEADER", action = act.PaneSelect({}) },
 	{ key = "z", mods = "LEADER", action = act.TogglePaneZoomState },
 
 	-- Navigation
@@ -363,7 +334,7 @@ local function make_tab_bar_colors(scheme_name, a)
 	return {
 		background = rgba(bg, opacity_tab_bar),
 		active_tab = {
-			bg_color = rgba(active_bg, 0.6),
+			bg_color = rgba(active_bg, opacity_active_tab),
 			fg_color = active_fg,
 		},
 		inactive_tab = {
@@ -391,37 +362,36 @@ local function apply_opacity(window)
 	local overrides = window:get_config_overrides() or {}
 	local mode = wezterm.GLOBAL.opacity_mode or 0
 	local desat_mode = wezterm.GLOBAL.desat_mode or 1
+	local theme = active_theme()
 	if window:is_focused() then
-		overrides.window_background_opacity = (mode == 0) and opacity or 0.999 -- 0.999 because MacOS draws a thin white border at 1.0
-		overrides.colors = { tab_bar = make_tab_bar_colors(active_theme(), overrides.window_background_opacity) }
+		overrides.window_background_opacity = (mode == 0) and opacity or opacity_max
+		overrides.colors = { tab_bar = make_tab_bar_colors(theme, overrides.window_background_opacity) }
 		overrides.inactive_pane_hsb = (desaturate_inactive_panes and desat_mode == 1 and globals.preview_theme == nil)
 				and {
 					saturation = 1 - (desaturation_inactive_window * 0.5),
-					brightness = 0.666,
+					brightness = inactive_pane_brightness,
 				}
 			or nil
 	else
-		overrides.window_background_opacity = (mode == 2) and 0.999 or opacity_inactive_window
-		local s = builtin_schemes[active_theme()] or builtin_schemes[fallback_theme]
+		overrides.window_background_opacity = (mode == 2) and opacity_max or opacity_inactive_window
+		local s = builtin_schemes[theme] or builtin_schemes[fallback_theme]
 		local desat = (desat_mode == 1) and desaturation_inactive_window or 0
+		local function desaturate_list(list)
+			if not list or desat == 0 then
+				return nil
+			end
+			local t = {}
+			for _, c in ipairs(list) do
+				table.insert(t, wezterm.color.parse(c):desaturate(desat))
+			end
+			return t
+		end
 		overrides.colors = {
-			tab_bar = make_tab_bar_colors(active_theme(), overrides.window_background_opacity),
-			foreground = s.foreground and wezterm.color.parse(s.foreground):desaturate(desat) or nil,
-			background = s.background and wezterm.color.parse(s.background):desaturate(desat) or nil,
-			ansi = s.ansi and (function()
-				local t = {}
-				for _, c in ipairs(s.ansi) do
-					table.insert(t, wezterm.color.parse(c):desaturate(desat))
-				end
-				return t
-			end)() or nil,
-			brights = s.brights and (function()
-				local t = {}
-				for _, c in ipairs(s.brights) do
-					table.insert(t, wezterm.color.parse(c):desaturate(desat))
-				end
-				return t
-			end)() or nil,
+			tab_bar = make_tab_bar_colors(theme, overrides.window_background_opacity),
+			foreground = (desat > 0 and s.foreground) and wezterm.color.parse(s.foreground):desaturate(desat) or nil,
+			background = (desat > 0 and s.background) and wezterm.color.parse(s.background):desaturate(desat) or nil,
+			ansi = desaturate_list(s.ansi),
+			brights = desaturate_list(s.brights),
 		}
 	end
 	window:set_config_overrides(overrides)

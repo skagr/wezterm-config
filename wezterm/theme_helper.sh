@@ -6,9 +6,10 @@ Called by WezTerm fzf theme picker
 USAGE: ${0##*/} [-h|--help] SUBCOMMAND [ARGS]
 
 SUBCOMMANDS:
-    preview THEME   Preview THEME
-    confirm THEME   Apply THEME to Wezterm, Neovim & Bat
-    cancel          Restore current them by clearing preview_theme
+    pick THEMES_FILE SHELL_RC   Run fzf theme picker
+    preview THEME               Preview THEME
+    confirm THEME SHELL_RC      Apply THEME to Wezterm, Neovim & Bat; write env vars to SHELL_RC
+    cancel                      Restore current theme by clearing preview_theme
 EOF
 }
 
@@ -80,6 +81,36 @@ get_app_themes() {
   done <"${theme_map}"
 }
 
+pick_theme() {
+  local themes_file="${1}" shell_rc="${2}" cfg_dir selected
+  local dark light light_dark
+  cfg_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  dark=$(printf '\xef\x86\x86')       # U+F186
+  light=$(printf '\xef\x86\x85')      # U+F185
+  light_dark=$(printf '\xf3\xb0\x94\x8e')  # U+F050E
+
+  printf "\033]1337;SetUserVar=%s=%s\007" IS_FZF "$(printf 'true' | base64)"
+
+  selected=$(fzf \
+    --no-sort \
+    --reverse \
+    --prompt="theme ${light_dark} " \
+    --bind "ctrl-i:change-prompt(theme )+change-query(${dark} )" \
+    --bind "ctrl-o:change-prompt(theme )+change-query(${light} )" \
+    --bind "ctrl-p:change-prompt(theme ${light_dark} )+change-query()" \
+    --bind "ctrl-j:down,ctrl-k:up" \
+    --bind "focus:execute-silent[${cfg_dir}/theme_helper.sh preview {}]" \
+    --bind "esc:execute-silent[${cfg_dir}/theme_helper.sh cancel]+abort" \
+    <"${themes_file}")
+
+  if [ -n "${selected}" ]; then
+    "${cfg_dir}/theme_helper.sh" confirm "${selected}" "${shell_rc}"
+    export $(grep '^export' "${shell_rc}" | xargs)
+  else
+    "${cfg_dir}/theme_helper.sh" cancel
+  fi
+}
+
 # ${1% *} strips the trailing icon fzf appends to theme names for display.
 preview_theme() {
   local current
@@ -97,7 +128,7 @@ cancel_theme() {
 # ${1% *} strips the trailing icon fzf appends to theme names for display.
 confirm_theme() {
   local shell_rc name
-  shell_rc="${HOME}/.zshrc.local"
+  shell_rc="${2}"
   name="${1% *}"
 
   local mapped nvim bat
@@ -121,6 +152,9 @@ main() {
     show_help
     return 0
     ;;
+  "pick")
+    pick_theme "${2}" "${3}"
+    ;;
   "preview")
     preview_theme "${2}"
     ;;
@@ -128,7 +162,7 @@ main() {
     cancel_theme
     ;;
   "confirm")
-    confirm_theme "${2}"
+    confirm_theme "${2}" "${3}"
     ;;
   *)
     printf 'Unrecognized subcommand: %s\n' "${1}" >&2
