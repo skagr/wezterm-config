@@ -80,10 +80,15 @@ end
 
 local function read_wezterm_theme()
 	local f = io.open(shell_rc, "r")
-	if not f then return nil end
+	if not f then
+		return nil
+	end
 	for line in f:lines() do
 		local theme = line:match('^export WEZTERM_THEME="(.-)"')
-		if theme then f:close(); return theme end
+		if theme then
+			f:close()
+			return theme
+		end
 	end
 	f:close()
 	return nil
@@ -434,6 +439,14 @@ end)
 
 wezterm.on("window-config-reloaded", function(window)
 	apply_opacity(window)
+end)
+
+wezterm.on("update-status", function(window, pane)
+	if window:leader_is_active() then
+		window:set_right_status(wezterm.nerdfonts.md_tools .. " ")
+	else
+		window:set_right_status("")
+	end
 end)
 
 return config
