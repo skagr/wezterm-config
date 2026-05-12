@@ -41,8 +41,9 @@ EOF
   mv -f "${globals}.tmp" "${globals}"
 }
 
-# Atomically rewrites shell_rc, substituting only NVIM_THEME and BAT_THEME
-# export lines in-place so all other contents are preserved unchanged.
+# Atomically rewrites shell_rc, substituting WEZTERM_THEME, NVIM_THEME and BAT_THEME
+# export lines in-place; other lines are preserved unchanged. Each substitution
+# is a no-op if the line doesn't exist in shell_rc.
 # Also updates globals.lua so WezTerm reflects the confirmed theme immediately.
 # $1: wezterm_theme  $2: nvim_theme  $3: bat_theme  $4: /path/to/shell_rc
 set_theme() {
@@ -51,6 +52,9 @@ set_theme() {
 
   while read -r line; do
     case "${line}" in
+    "export WEZTERM_THEME="*)
+      printf 'export WEZTERM_THEME="%s"\n' "${1}" >>"${tmp}"
+      ;;
     "export NVIM_THEME="*)
       printf 'export NVIM_THEME="%s"\n' "${2}" >>"${tmp}"
       ;;

@@ -27,8 +27,8 @@ local desaturate_inactive_panes = true -- sets initial desat_mode: true → "mut
 local transparency_mode = "both" -- "both" | "inactive" | "none"
 config.macos_window_background_blur = 10
 local opacity_active_window = 0.90
-local opacity_inactive_window = 0.75
-local desaturation_inactive_pane = 0.666
+local opacity_inactive_window = 0.80
+local desaturation_inactive_pane = 1 --0.666
 local brightness_inactive_pane = 0.666
 local opacity_tab_bar = 0
 local opacity_active_tab = 0.6
@@ -78,8 +78,19 @@ if not ok then
 	globals = { current_theme = fallback_theme, preview_theme = nil }
 end
 
+local function read_wezterm_theme()
+	local f = io.open(shell_rc, "r")
+	if not f then return nil end
+	for line in f:lines() do
+		local theme = line:match('^export WEZTERM_THEME="(.-)"')
+		if theme then f:close(); return theme end
+	end
+	f:close()
+	return nil
+end
+
 local function active_theme()
-	return globals.preview_theme or globals.current_theme
+	return globals.preview_theme or read_wezterm_theme() or globals.current_theme
 end
 
 local function theme_switcher(window, pane)
@@ -296,6 +307,7 @@ config.keys = {
 
 -- Theme state ------------------------------------------------------------
 wezterm.add_to_config_reload_watch_list(globals_path)
+wezterm.add_to_config_reload_watch_list(shell_rc)
 
 config.color_scheme = active_theme()
 config.window_background_opacity = opacity_active_window
