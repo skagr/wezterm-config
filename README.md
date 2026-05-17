@@ -129,9 +129,8 @@ In theme picker:
 
 | Keys | Action |
 |---|---|
-| `Ctrl+I` | Filter dark themes |
-| `Ctrl+O` | Filter light themes |
-| `Ctrl+P` | Filter all themes |
+| `Ctrl+T` | Cycle dark/light/all themes |
+| `Ctrl+J/K` | Line down/up |
 
 
 ### Splits, Tabs & Windows
@@ -145,7 +144,7 @@ In theme picker:
 | `<leader>R` | Rotate panes clockwise |
 | `⌘+T` | New tab |
 | `⌘+N` | New window |
-| `⌘+W` | Close current pane |
+| `⌘+W` | Close current pane/tab/window |
 
 
 ### Pane Selection & Zoom
@@ -159,7 +158,7 @@ In theme picker:
 
 ### Navigation
 
-These keys are forwarded to Neovim when the active pane is running (n)vim, otherwise they navigate WezTerm panes. At the edge of the pane layout, focus moves to the neighboring Aerospace window.
+These keys are forwarded to Neovim when the active pane is running nvim, otherwise they navigate WezTerm panes. At the edge of the pane layout, focus moves to the neighboring Aerospace window.
 
 
 | Keys | Action |
