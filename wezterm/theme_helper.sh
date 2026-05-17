@@ -18,8 +18,8 @@ get_current_theme() {
   while read -r line; do
     case "${line}" in
     *"current_theme = "*)
-      theme="${line##*= \"}"   # strip up to opening quote
-      theme="${theme%%\"*}"    # strip from closing quote onward
+      theme="${line##*= \"}" # strip up to opening quote
+      theme="${theme%%\"*}"  # strip from closing quote onward
       printf '%s\n' "${theme}"
       break
       ;;
@@ -85,27 +85,41 @@ get_app_themes() {
   done <"${theme_map}"
 }
 
+# fzf theme picker with live preview
+# Ctrl-T cycles Dark/Light/All prefilter
+# Ctrl-J/K to scroll
 pick_theme() {
   local themes_file="${1}" shell_rc="${2}" cfg_dir selected
   local dark light light_dark
   cfg_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  dark=$(printf '\xef\x86\x86')       # U+F186
-  light=$(printf '\xef\x86\x85')      # U+F185
-  light_dark=$(printf '\xf3\xb0\x94\x8e')  # U+F050E
+  dark=$(printf '\xef\x86\x86')           # U+F186
+  light=$(printf '\xef\x86\x85')          # U+F185
+  light_dark=$(printf '\xf3\xb0\x94\x8e') # U+F050E
 
-  printf "\033]1337;SetUserVar=%s=%s\007" IS_FZF "$(printf 'true' | base64)"
+  local act_all act_dark act_light preview cancel cycle
+  act_all="reload(cat ${themes_file})+change-prompt(theme ${light_dark} )"
+  act_dark="reload(grep -F ${dark} ${themes_file})+change-prompt(theme ${dark} )"
+  act_light="reload(grep -F ${light} ${themes_file})+change-prompt(theme ${light} )"
+  preview="execute-silent[${cfg_dir}/theme_helper.sh preview {}]"
+  cancel="execute-silent[${cfg_dir}/theme_helper.sh cancel]"
+  cycle="if [[ \$FZF_PROMPT == 'theme ${light_dark} ' ]]; then echo '${act_dark}';"
+  cycle+=" elif [[ \$FZF_PROMPT == 'theme ${dark} ' ]]; then echo '${act_light}';"
+  cycle+=" else echo '${act_all}'; fi"
+
+  printf "\033]1337;SetUserVar=%s=%s\007" IS_FZF "$(printf 'true' | base64)" # Ctrl-J/K passthrough
 
   selected=$(fzf \
-    --no-sort \
+    --header="Ctrl-T to filter Dark/Light" \
     --reverse \
     --prompt="theme ${light_dark} " \
-    --bind "ctrl-i:change-prompt(theme )+change-query(${dark} )" \
-    --bind "ctrl-o:change-prompt(theme )+change-query(${light} )" \
-    --bind "ctrl-p:change-prompt(theme ${light_dark} )+change-query()" \
+    --bind "ctrl-t:transform:${cycle}" \
     --bind "ctrl-j:down,ctrl-k:up" \
-    --bind "focus:execute-silent[${cfg_dir}/theme_helper.sh preview {}]" \
-    --bind "esc:execute-silent[${cfg_dir}/theme_helper.sh cancel]+abort" \
+    --bind "load:${preview}" \
+    --bind "focus:${preview}" \
+    --bind "esc:${cancel}+abort" \
     <"${themes_file}")
+
+  printf "\033]1337;SetUserVar=%s=%s\007" IS_FZF "$(printf 'false' | base64)"
 
   if [ -n "${selected}" ]; then
     "${cfg_dir}/theme_helper.sh" confirm "${selected}" "${shell_rc}"

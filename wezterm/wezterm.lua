@@ -26,9 +26,9 @@ config.default_cursor_style = "SteadyBar"
 local desaturate_inactive_panes = true -- sets initial desat_mode: true → "muted", false → "vibrant"
 local transparency_mode = "both" -- "both" | "inactive" | "none"
 config.macos_window_background_blur = 10
-local opacity_active_window = 0.90
-local opacity_inactive_window = 0.80
-local desaturation_inactive_pane = 1 --0.666
+local opacity_active_window = 0.97
+local opacity_inactive_window = 0.88
+local desaturation_inactive_pane = 0.666
 local brightness_inactive_pane = 0.666
 local opacity_tab_bar = 0
 local opacity_active_tab = 0.6
@@ -44,6 +44,8 @@ local shell_rc = wezterm.home_dir .. "/.zshrc.local"
 config.set_environment_variables = {
 	PATH = "/opt/homebrew/bin:" .. os.getenv("PATH"),
 }
+
+config.enable_kitty_graphics = true
 
 -- Theme picker -----------------------------------------------------------
 local globals_path = wezterm.config_dir .. "/globals.lua"
