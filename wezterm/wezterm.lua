@@ -34,7 +34,9 @@ local opacity_tab_bar = 0
 local opacity_active_tab = 0.6
 local opacity_max = 0.999 -- macOS draws a thin white border at exactly 1.0
 
--- non-login shell for new tabs, panes, and windows; startup gets the OS default (login shell)
+-- non-login shell for new tabs, panes, and windows;
+-- any settings from .zprofile are inherited, but it is not sourced again
+-- startup gets the OS default (login shell)
 -- Change to { "/bin/zsh", "-l" } for login shells
 local new_pane_prog = { "/bin/zsh" }
 -- where do *_THEME env vars live? This script will not add them, only update them if they exist
@@ -45,7 +47,8 @@ config.set_environment_variables = {
 	PATH = "/opt/homebrew/bin:" .. os.getenv("PATH"),
 }
 
-config.enable_kitty_graphics = true
+config.enable_kitty_graphics = true -- view images in markdown (nvim)
+config.enable_kitty_keyboard = true -- needed for Pi agent
 
 -- Theme picker -----------------------------------------------------------
 local globals_path = wezterm.config_dir .. "/globals.lua"
